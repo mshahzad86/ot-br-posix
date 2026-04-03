@@ -136,6 +136,9 @@ private:
     void AddJoiner(const Request &aRequest, Response &aResponse) const;
     void RemoveJoiner(const Request &aRequest, Response &aResponse) const;
     void GetCoprocessorVersion(Response &aResponse) const;
+    void PanMap(const Request &aRequest, Response &aResponse) const;
+    void GetPanMap(Response &aResponse) const;
+    void SetPanMap(const Request &aRequest, Response &aResponse) const;
 
     void ApiActionsHandler(const Request &aRequest, Response &aResponse);
     void ApiActionsGetHandler(const Request &aRequest, Response &aResponse);

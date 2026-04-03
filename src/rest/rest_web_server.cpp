@@ -82,6 +82,7 @@
 #define OT_REST_RESOURCE_PATH_NODE_COMMISSIONER_JOINER "/node/commissioner/joiner"
 #define OT_REST_RESOURCE_PATH_NODE_COPROCESSOR "/node/coprocessor"
 #define OT_REST_RESOURCE_PATH_NODE_COPROCESSOR_VERSION "/node/coprocessor/version"
+#define OT_REST_RESOURCE_PATH_NODE_PANMAP "/node/panmap"
 #define OT_REST_RESOURCE_PATH_NETWORK "/networks"
 #define OT_REST_RESOURCE_PATH_NETWORK_CURRENT "/networks/current"
 #define OT_REST_RESOURCE_PATH_NETWORK_CURRENT_COMMISSION "/networks/commission"
@@ -163,6 +164,9 @@ RestWebServer::RestWebServer(Host::RcpHost &aHost)
     mServer.Delete(OT_REST_RESOURCE_PATH_NODE_COMMISSIONER_JOINER, MakeHandler(&RestWebServer::CommissionerJoiner));
     mServer.Options(OT_REST_RESOURCE_PATH_NODE_COMMISSIONER_JOINER, MakeHandler(&RestWebServer::CommissionerJoiner));
     mServer.Get(OT_REST_RESOURCE_PATH_NODE_COPROCESSOR_VERSION, MakeHandler(&RestWebServer::CoprocessorVersion));
+    mServer.Get(OT_REST_RESOURCE_PATH_NODE_PANMAP, MakeHandler(&RestWebServer::PanMap));
+    mServer.Put(OT_REST_RESOURCE_PATH_NODE_PANMAP, MakeHandler(&RestWebServer::PanMap));
+    mServer.Options(OT_REST_RESOURCE_PATH_NODE_PANMAP, MakeHandler(&RestWebServer::PanMap));
 
     mServer.set_error_handler(MakeHandler(&RestWebServer::RoutingErrorHandler));
     mServer.Get(OT_REST_ROUTE_ACTIONS, MakeHandlerInMainLoop(&RestWebServer::ApiActionsHandler));
@@ -1050,6 +1054,109 @@ void RestWebServer::CoprocessorVersion(const Request &aRequest, Response &aRespo
     else
     {
         ErrorHandler(aResponse, StatusCode::MethodNotAllowed_405);
+    }
+}
+
+void RestWebServer::CoprocessorVersion(const Request &aRequest, Response &aResponse) const
+{
+    if (GetMethod(aRequest) == HttpMethod::kGet)
+    {
+        GetCoprocessorVersion(aResponse);
+    }
+    else
+    {
+        ErrorHandler(aResponse, StatusCode::MethodNotAllowed_405);
+    }
+}
+
+void RestWebServer::GetPanMap(Response &aResponse) const
+{
+    otbrError            error = OTBR_ERROR_NONE;
+    std::string          body;
+    otOperationalDataset dataset;
+
+    SuccessOrExit(error = RunInMainLoop([this, &dataset]() {
+        VerifyOrReturn(otDatasetGetActive(GetInstance(), &dataset) == OT_ERROR_NONE, OTBR_ERROR_NOT_FOUND);
+        return OTBR_ERROR_NONE;
+    }));
+
+    body = Json::PanMap2JsonString(dataset);
+    aResponse.set_content(body, OT_REST_CONTENT_TYPE_JSON);
+
+exit:
+    if (error == OTBR_ERROR_NONE)
+    {
+        aResponse.status = StatusCode::OK_200;
+    }
+    else if (error == OTBR_ERROR_NOT_FOUND)
+    {
+        aResponse.set_content("[]", OT_REST_CONTENT_TYPE_JSON);
+        aResponse.status = StatusCode::OK_200;
+    }
+    else
+    {
+        ErrorHandler(aResponse, StatusCode::InternalServerError_500);
+    }
+}
+
+void RestWebServer::SetPanMap(const Request &aRequest, Response &aResponse) const
+{
+    otbrError error = OTBR_ERROR_NONE;
+
+    SuccessOrExit(error = RunInMainLoop([this, &aRequest]() {
+        otOperationalDataset     dataset = {};
+        otOperationalDatasetTlvs datasetTlvs;
+        otPanIdList              panIds  = {};
+        otPanKeyList             panKeys = {};
+
+        VerifyOrReturn(Json::JsonString2PanMap(aRequest.body, panIds, panKeys), OTBR_ERROR_INVALID_ARGS);
+
+        if (otDatasetGetActiveTlvs(GetInstance(), &datasetTlvs) != OT_ERROR_NONE)
+        {
+            VerifyOrReturn(otDatasetCreateNewNetwork(GetInstance(), &dataset) == OT_ERROR_NONE, OTBR_ERROR_REST);
+            otDatasetConvertToTlvs(&dataset, &datasetTlvs);
+        }
+
+        dataset                             = {};
+        dataset.mPanIds                     = panIds;
+        dataset.mPanKeys                    = panKeys;
+        dataset.mComponents.mIsPanIdsPresent  = true;
+        dataset.mComponents.mIsPanKeysPresent = true;
+
+        VerifyOrReturn(otDatasetUpdateTlvs(&dataset, &datasetTlvs) == OT_ERROR_NONE, OTBR_ERROR_REST);
+        VerifyOrReturn(otDatasetSetActiveTlvs(GetInstance(), &datasetTlvs) == OT_ERROR_NONE, OTBR_ERROR_REST);
+        return OTBR_ERROR_NONE;
+    }));
+
+    aResponse.status = StatusCode::OK_200;
+
+exit:
+    if (error == OTBR_ERROR_INVALID_ARGS)
+    {
+        ErrorHandler(aResponse, StatusCode::BadRequest_400);
+    }
+    else if (error != OTBR_ERROR_NONE && aResponse.status != StatusCode::OK_200)
+    {
+        ErrorHandler(aResponse, StatusCode::InternalServerError_500);
+    }
+}
+
+void RestWebServer::PanMap(const Request &aRequest, Response &aResponse) const
+{
+    switch (GetMethod(aRequest))
+    {
+    case HttpMethod::kGet:
+        GetPanMap(aResponse);
+        break;
+    case HttpMethod::kPut:
+        SetPanMap(aRequest, aResponse);
+        break;
+    case HttpMethod::kOptions:
+        aResponse.status = StatusCode::OK_200;
+        break;
+    default:
+        ErrorHandler(aResponse, StatusCode::MethodNotAllowed_405);
+        break;
     }
 }
 

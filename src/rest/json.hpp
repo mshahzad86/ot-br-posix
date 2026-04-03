@@ -438,6 +438,27 @@ bool JsonActiveDatasetString2Dataset(const std::string &aJsonActiveDataset, otOp
  */
 bool JsonPendingDatasetString2Dataset(const std::string &aJsonPendingDataset, otOperationalDataset &aDataset);
 
+/**
+ * This method formats the pan map (paired PAN IDs and network keys) from an active dataset
+ * to a JSON array and serializes it to a string.
+ *
+ * @param[in] aDataset  A dataset struct.
+ *
+ * @returns A JSON array string, e.g. [{"panId":"0x1234","networkKey":"aabb..."}].
+ */
+std::string PanMap2JsonString(const otOperationalDataset &aDataset);
+
+/**
+ * This method parses a JSON array of {panId, networkKey} pairs and fills the provided lists.
+ *
+ * @param[in]  aJsonString  JSON array string, e.g. [{"panId":"0x1234","networkKey":"aabb..."}].
+ * @param[out] aPanIds      Filled with parsed PAN IDs.
+ * @param[out] aPanKeys     Filled with parsed network keys.
+ *
+ * @returns true if parsing succeeded, false on any error.
+ */
+bool JsonString2PanMap(const std::string &aJsonString, otPanIdList &aPanIds, otPanKeyList &aPanKeys);
+
 std::string JoinerInfo2JsonString(const otJoinerInfo &aJoinerInfo);
 
 otbrError StringDiscerner2Discerner(char *aString, otJoinerDiscerner &aDiscerner);

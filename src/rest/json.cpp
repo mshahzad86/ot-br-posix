@@ -1455,6 +1455,117 @@ cJSON *JoinerInfo2Json(const otJoinerInfo &aJoinerInfo)
     return node;
 }
 
+std::string PanMap2JsonString(const otOperationalDataset &aDataset)
+{
+    cJSON      *array = cJSON_CreateArray();
+    std::string ret   = "[]";
+
+    if (array == nullptr)
+    {
+        return ret;
+    }
+
+    if (aDataset.mComponents.mIsPanIdsPresent && aDataset.mComponents.mIsPanKeysPresent)
+    {
+        uint8_t count =
+            (aDataset.mPanIds.mCount < aDataset.mPanKeys.mCount) ? aDataset.mPanIds.mCount : aDataset.mPanKeys.mCount;
+
+        for (uint8_t i = 0; i < count; i++)
+        {
+            cJSON *entry = cJSON_CreateObject();
+
+            if (entry == nullptr)
+            {
+                continue;
+            }
+
+            char panIdStr[8]; // "0xFFFF\0" + null
+            snprintf(panIdStr, sizeof(panIdStr), "0x%04x", aDataset.mPanIds.mPanIds[i]);
+            cJSON_AddStringToObject(entry, "panId", panIdStr);
+
+            char keyStr[OT_NETWORK_KEY_SIZE * 2 + 1];
+            otbr::Utils::Bytes2Hex(aDataset.mPanKeys.mPanKeys[i].m8, OT_NETWORK_KEY_SIZE, keyStr);
+            keyStr[OT_NETWORK_KEY_SIZE * 2] = '\0';
+            cJSON_AddStringToObject(entry, "networkKey", keyStr);
+
+            cJSON_AddItemToArray(array, entry);
+        }
+    }
+
+    ret = Json2String(array);
+    cJSON_Delete(array);
+    return ret;
+}
+
+bool JsonString2PanMap(const std::string &aJsonString, otPanIdList &aPanIds, otPanKeyList &aPanKeys)
+{
+    bool   ret   = false;
+    cJSON *array = cJSON_Parse(aJsonString.c_str());
+
+    if (array == nullptr || !cJSON_IsArray(array))
+    {
+        goto exit;
+    }
+
+    {
+        int count = cJSON_GetArraySize(array);
+
+        if (count <= 0 || count > OT_MAX_PAN_IDS)
+        {
+            goto exit;
+        }
+
+        aPanIds.mCount  = 0;
+        aPanKeys.mCount = 0;
+
+        for (int i = 0; i < count; i++)
+        {
+            cJSON *entry = cJSON_GetArrayItem(array, i);
+
+            if (entry == nullptr || !cJSON_IsObject(entry))
+            {
+                goto exit;
+            }
+
+            cJSON *panIdItem = cJSON_GetObjectItemCaseSensitive(entry, "panId");
+            cJSON *keyItem   = cJSON_GetObjectItemCaseSensitive(entry, "networkKey");
+
+            if (panIdItem == nullptr || !cJSON_IsString(panIdItem) || keyItem == nullptr ||
+                !cJSON_IsString(keyItem))
+            {
+                goto exit;
+            }
+
+            char         *endPtr;
+            unsigned long panIdVal = strtoul(panIdItem->valuestring, &endPtr, 0);
+
+            if (*endPtr != '\0' || panIdVal > 0xFFFEU)
+            {
+                goto exit;
+            }
+
+            aPanIds.mPanIds[i] = static_cast<otPanId>(panIdVal);
+
+            int parsed = Hex2BytesJsonString(std::string(keyItem->valuestring), aPanKeys.mPanKeys[i].m8,
+                                             OT_NETWORK_KEY_SIZE);
+
+            if (parsed != OT_NETWORK_KEY_SIZE)
+            {
+                goto exit;
+            }
+
+            aPanIds.mCount++;
+            aPanKeys.mCount++;
+        }
+    }
+
+    ret = true;
+
+exit:
+    cJSON_Delete(array);
+    return ret;
+}
+
 std::string JoinerInfo2JsonString(const otJoinerInfo &aJoinerInfo)
 {
     cJSON      *node;

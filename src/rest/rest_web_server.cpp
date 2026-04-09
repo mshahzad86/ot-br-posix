@@ -1057,18 +1057,6 @@ void RestWebServer::CoprocessorVersion(const Request &aRequest, Response &aRespo
     }
 }
 
-void RestWebServer::CoprocessorVersion(const Request &aRequest, Response &aResponse) const
-{
-    if (GetMethod(aRequest) == HttpMethod::kGet)
-    {
-        GetCoprocessorVersion(aResponse);
-    }
-    else
-    {
-        ErrorHandler(aResponse, StatusCode::MethodNotAllowed_405);
-    }
-}
-
 void RestWebServer::GetPanMap(Response &aResponse) const
 {
     otbrError            error = OTBR_ERROR_NONE;
@@ -1104,27 +1092,28 @@ void RestWebServer::SetPanMap(const Request &aRequest, Response &aResponse) cons
     otbrError error = OTBR_ERROR_NONE;
 
     SuccessOrExit(error = RunInMainLoop([this, &aRequest]() {
-        otOperationalDataset     dataset = {};
-        otOperationalDatasetTlvs datasetTlvs;
-        otPanIdList              panIds  = {};
-        otPanKeyList             panKeys = {};
+        otOperationalDataset dataset = {};
+        otPanIdList          panIds  = {};
+        otPanKeyList         panKeys = {};
 
         VerifyOrReturn(Json::JsonString2PanMap(aRequest.body, panIds, panKeys), OTBR_ERROR_INVALID_ARGS);
 
-        if (otDatasetGetActiveTlvs(GetInstance(), &datasetTlvs) != OT_ERROR_NONE)
+        // Preserve existing dataset fields; ignore failure (empty dataset is fine)
+        if (otDatasetGetActive(GetInstance(), &dataset) != OT_ERROR_NONE)
         {
             VerifyOrReturn(otDatasetCreateNewNetwork(GetInstance(), &dataset) == OT_ERROR_NONE, OTBR_ERROR_REST);
-            otDatasetConvertToTlvs(&dataset, &datasetTlvs);
         }
 
-        dataset                             = {};
-        dataset.mPanIds                     = panIds;
-        dataset.mPanKeys                    = panKeys;
+        dataset.mPanIds                       = panIds;
+        dataset.mPanKeys                      = panKeys;
         dataset.mComponents.mIsPanIdsPresent  = true;
         dataset.mComponents.mIsPanKeysPresent = true;
 
-        VerifyOrReturn(otDatasetUpdateTlvs(&dataset, &datasetTlvs) == OT_ERROR_NONE, OTBR_ERROR_REST);
-        VerifyOrReturn(otDatasetSetActiveTlvs(GetInstance(), &datasetTlvs) == OT_ERROR_NONE, OTBR_ERROR_REST);
+        // Use otDatasetSetActive (not TLVs) to avoid ValidateTlvs, which incorrectly
+        // requires sizeof(otPanKeyList) bytes for the kPanKeys TLV — larger than the
+        // max dataset size. This path uses SaveLocal(Dataset::Info&) which calls
+        // IgnoreError(WriteTlvsFrom(...)) so the write succeeds without validation.
+        otDatasetSetActive(GetInstance(), &dataset);
         return OTBR_ERROR_NONE;
     }));
 
@@ -1174,12 +1163,14 @@ void RestWebServer::RoutingErrorHandler(const Request &aRequest, Response &aResp
         // fallthrough
     case HttpMethod::kDelete:
         // fallthrough
+    case HttpMethod::kPut:
+        // fallthrough
     case HttpMethod::kOptions:
         break;
     default:
         errorDetails = "method not supported";
         error        = StatusCode::MethodNotAllowed_405;
-        aResponse.set_header("Allow", "GET, POST, DELETE, OPTIONS");
+        aResponse.set_header("Allow", "GET, POST, DELETE, PUT, OPTIONS");
         break;
     }
 

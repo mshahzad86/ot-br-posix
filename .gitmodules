@@ -1,7 +1,7 @@
 [submodule "third_party/openthread/repo"]
 	path = third_party/openthread/repo
 	url = https://github.com/mshahzad86/openthread.git
-	branch = main
+	branch = feature/device_assignment
 [submodule "third_party/cJSON/repo"]
 	path = third_party/cJSON/repo
 	url = https://github.com/DaveGamble/cJSON.git

@@ -50,6 +50,7 @@ namespace otbr {
 #endif
 
 std::atomic_bool     Application::sShouldTerminate(false);
+std::atomic_bool     Application::sIsPseudoReset(false);
 const struct timeval Application::kPollTimeout = {OTBR_MAINLOOP_POLL_TIMEOUT_SEC, 0};
 
 Application::Application(Host::ThreadHost  &aHost,
@@ -78,6 +79,9 @@ Application::Application(Host::ThreadHost  &aHost,
     , mDBusAgent(MakeDBusDependentComponents())
 #endif
 {
+    sShouldTerminate = false;
+    sIsPseudoReset   = false;
+
     if (mHost.GetCoprocessorType() == OT_COPROCESSOR_RCP)
     {
         CreateRcpMode();
@@ -123,10 +127,6 @@ void Application::Init(const std::string &aRestListenAddress, int aRestListenPor
 
 void Application::Deinit(void)
 {
-#if OTBR_ENABLE_DBUS_SERVER
-    mDBusAgent.Deinit();
-#endif
-
     switch (mHost.GetCoprocessorType())
     {
     case OT_COPROCESSOR_RCP:
@@ -141,6 +141,10 @@ void Application::Deinit(void)
     }
 
     mHost.Deinit();
+
+#if OTBR_ENABLE_DBUS_SERVER
+    mDBusAgent.Deinit();
+#endif
 }
 
 otbrError Application::Run(void)
@@ -303,8 +307,15 @@ void Application::InitRcpMode(const std::string &aRestListenAddress, int aRestLi
     });
     SetBorderAgentOnInitState();
 #else
-    mBorderAgent.SetVendorTxtDataChangedCallback(
-        [this](const BorderAgent::TxtData &aVendorTxtData) { mHost.SetBorderAgentVendorTxtData(aVendorTxtData); });
+    mBorderAgent.SetVendorTxtDataChangedCallback([this](const BorderAgent::TxtData &aVendorTxtData) {
+        otError error = mHost.SetBorderAgentMeshCoPServiceBaseName(mBorderAgent.GetBaseServiceInstanceName());
+        if (error != OT_ERROR_NONE)
+        {
+            otbrLogWarning("Failed to set Border Agent MeshCoP service base name: %s", otThreadErrorToString(error));
+        }
+
+        mHost.SetBorderAgentVendorTxtData(aVendorTxtData);
+    });
 #endif
 #endif // OTBR_ENABLE_BORDER_AGENT
 #if OTBR_ENABLE_BACKBONE_ROUTER
